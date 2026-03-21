@@ -1,0 +1,8 @@
+com/tracing/example/service/InventoryService.class
+com/tracing/example/service/OrderService.class
+com/tracing/example/service/OrderCleanupTask.class
+com/tracing/example/controller/OrderController.class
+com/tracing/example/service/PaymentService.class
+com/tracing/example/ExampleApplication.class
+com/tracing/example/controller/HealthController.class
+com/tracing/example/repository/OrderRepository.class

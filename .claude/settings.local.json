@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(java -version)",
+      "Bash(mvn -version)",
+      "Bash(gradle -version)",
+      "Bash(mvn clean:*)",
+      "Bash(mvn test:*)",
+      "Bash(find:*)",
+      "Bash(git diff:*)",
+      "Bash(git init:*)"
+    ]
+  }
+}
