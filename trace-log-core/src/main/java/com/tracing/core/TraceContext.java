@@ -64,6 +64,10 @@ public final class TraceContext {
         while ((count = eventCount.get()) < maxEvents) {
             if (eventCount.compareAndSet(count, count + 1)) {
                 events.add(event);
+                if (count + 1 == maxEvents) {
+                    System.err.println("[trace-log] Event cap reached (" + maxEvents
+                            + ") for trace " + traceId + " — subsequent events will be dropped");
+                }
                 return;
             }
         }
