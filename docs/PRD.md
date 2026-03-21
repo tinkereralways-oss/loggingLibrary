@@ -2,7 +2,7 @@
 
 **Version:** 1.0.0-SNAPSHOT
 **Last Updated:** 2026-03-21
-**Status:** In Development
+**Status:** Production Ready
 
 ---
 
@@ -101,7 +101,7 @@ trace-log directly attacks the diagnosis phase of MTTR by ensuring that when an 
 | F-23 | The custom `X-Trace-Id` header is read and stored as `parentTraceId` for upstream correlation | P0 |
 | F-24 | The trace ID is set on the HTTP response header for downstream propagation | P0 |
 | F-25 | The trace ID is placed in SLF4J MDC under key `traceId` for standard log integration | P0 |
-| F-26 | `traceparent` parser validates: minimum length, delimiter positions, all-zero rejection, lowercase hex charset | P1 |
+| F-26 | `traceparent` parser validates: minimum length, delimiter positions, all-zero rejection, hex charset (upper and lowercase accepted, normalized to lowercase) | P1 |
 
 ### 4.4 Context Propagation
 
@@ -125,18 +125,30 @@ trace-log directly attacks the diagnosis phase of MTTR by ensuring that when an 
 | F-37 | Custom `LogSink` implementations can be registered as Spring beans to override the default | P0 |
 | F-38 | `CompositeSink` enables writing to multiple destinations simultaneously with independent failure handling | P1 |
 
-### 4.6 Buffering and Reliability
+### 4.6 Sampling
 
 | ID | Requirement | Priority |
 |----|-------------|----------|
-| F-39 | Completed traces are buffered in an async queue and flushed by a background thread | P0 |
-| F-40 | Flush interval is configurable (default: 5 seconds) | P1 |
-| F-41 | Flush batch size is capped at 256 traces per cycle | P1 |
-| F-42 | Failed sink writes are retried once before dropping | P0 |
-| F-43 | Backpressure: traces are dropped with a stderr warning when the queue exceeds `maxPendingTraces` (default: 10,000) | P0 |
-| F-44 | Events are dropped with a stderr warning when a trace exceeds `maxEventsPerTrace` (default: 1,000) | P0 |
-| F-45 | Graceful shutdown drains the entire queue before closing the sink | P0 |
-| F-46 | ThreadLocal state is always cleaned up in `finally` blocks to prevent leaks in thread pools | P0 |
+| F-39a | Pluggable `SamplingStrategy` interface checked at `BufferManager.submit()` — before traces enter the queue | P0 |
+| F-39b | `RateSamplingStrategy`: deterministic hash of traceId for consistent sampling decisions; configurable rate 0.0–1.0 | P0 |
+| F-39c | **Error traces are always sampled regardless of rate** — hard rule, not configurable | P0 |
+| F-39d | `AlwaysSampleStrategy` is the default (backward compatible — all traces sampled) | P0 |
+| F-39e | Sampling rate configurable via `tracelog.sampling.rate` property | P0 |
+| F-39f | Custom `SamplingStrategy` can be registered as a Spring bean via `@ConditionalOnMissingBean` | P1 |
+| F-39g | `sampledOutCount` counter tracks filtered traces (distinct from `droppedCount` for backpressure) | P1 |
+
+### 4.7 Buffering and Reliability
+
+| ID | Requirement | Priority |
+|----|-------------|----------|
+| F-40 | Completed traces are buffered in an async queue and flushed by a background thread | P0 |
+| F-41 | Flush interval is configurable (default: 5 seconds) | P1 |
+| F-42 | Flush batch size is capped at 256 traces per cycle | P1 |
+| F-43 | Failed sink writes are retried once before dropping | P0 |
+| F-44 | Backpressure: traces are dropped with a stderr warning when the queue exceeds `maxPendingTraces` (default: 10,000) | P0 |
+| F-45 | Events are dropped with a stderr warning when a trace exceeds `maxEventsPerTrace` (default: 1,000) | P0 |
+| F-46 | Graceful shutdown drains the entire queue before closing the sink | P0 |
+| F-47 | ThreadLocal state is always cleaned up in `finally` blocks to prevent leaks in thread pools | P0 |
 
 ---
 
@@ -151,13 +163,16 @@ trace-log directly attacks the diagnosis phase of MTTR by ensuring that when an 
 | NF-03 | Sink I/O is fully decoupled from request threads | Background `ScheduledExecutorService` daemon thread |
 | NF-04 | StackWalker origin capture overhead | Amortized via ConcurrentHashMap frame-filter cache (max 10,000 entries) |
 | NF-05 | W3C `traceparent` parsing | Zero array allocation (`indexOf`-based, no `split()`) |
+| NF-05a | Sustained throughput | 20,000+ TPS (measured: 586,968 TPS) |
+| NF-05b | Per-trace latency overhead | p99 < 500 us (measured: 2 us) |
+| NF-05c | Sampling overhead | Sampling check before queue insertion; zero queue/flush overhead for sampled-out traces |
 
 ### 5.2 Reliability
 
 | ID | Requirement |
 |----|-------------|
 | NF-06 | Library code never throws exceptions to application code |
-| NF-07 | Failed traces are counted (`droppedCount`, `failedCount`) for monitoring |
+| NF-07 | Failed traces are counted (`droppedCount`, `failedCount`, `sampledOutCount`) for monitoring |
 | NF-08 | Flush thread has `IS_FLUSHING` guard to prevent re-entrant TraceLog calls from within sink code |
 | NF-09 | `ManualTrace.close()` is idempotent via `AtomicBoolean` (safe for double-close) |
 
@@ -198,6 +213,7 @@ trace-log/
 │   ├── TimedEvent                   AutoCloseable timed operations
 │   ├── ManualTrace                  AutoCloseable manual trace lifecycle
 │   ├── BufferManager                Async queue with scheduled drain
+│   ├── SamplingStrategy             Pluggable trace sampling (rate-based, always-sample)
 │   ├── LogSink / JsonStdoutSink     Pluggable output abstraction
 │   ├── CompositeSink                Multi-sink fan-out
 │   ├── W3CTraceparentParser         OTEL traceparent header parsing
@@ -206,7 +222,7 @@ trace-log/
 │   └── TraceableExecutorService     ExecutorService wrapper
 │
 ├── trace-log-spring-boot-starter/   Auto-configuration
-│   ├── TraceLogAutoConfiguration    Root config + bean wiring
+│   ├── TraceLogAutoConfiguration    Root config + bean wiring + sampling
 │   ├── TraceLogWebMvcAutoConfiguration    REST interceptor
 │   ├── TraceLogKafkaAutoConfiguration     Kafka interceptor
 │   ├── TraceLogJmsAutoConfiguration       JMS/IBM MQ aspect
@@ -216,6 +232,7 @@ trace-log/
 │   └── TraceMdcFilter               SLF4J MDC bridge
 │
 ├── trace-log-example/               Demo Spring Boot app
+├── trace-log-e2e/                   Docker-based E2E tests (14 tests)
 └── trace-log-bom/                   Bill of Materials
 ```
 
@@ -237,7 +254,9 @@ Application code runs
 
 Request completes
   → TraceContext frozen into immutable CompletedTrace
-  → CompletedTrace queued in BufferManager
+  → SamplingStrategy.shouldSample() evaluated (error traces always pass)
+  → If sampled: CompletedTrace queued in BufferManager
+  → If sampled out: sampledOutCount incremented, trace discarded
   → ThreadLocal and MDC cleaned up in finally block
 
 Background flush (every 5s)
@@ -277,6 +296,7 @@ All properties are optional. Defaults work out of the box.
 | `tracelog.buffer.orphan-scan-interval-seconds` | int | `5` | Flush cycle interval |
 | `tracelog.buffer.max-trace-duration-seconds` | int | `300` | Reserved for future orphan detection |
 | `tracelog.buffer.max-pending-traces` | int | `10000` | Queue size before backpressure drops |
+| `tracelog.sampling.rate` | double | `1.0` | Fraction of traces to keep (0.0–1.0). Error traces always sampled. |
 | `tracelog.sink.pretty-print` | boolean | `false` | Indent JSON output |
 | `tracelog.no-context.behavior` | `NOOP` / `WARN` / `AUTO_START` | `NOOP` | Behavior when `TraceLog.event()` called with no active trace |
 
@@ -346,6 +366,7 @@ Each completed trace produces one JSON document:
 
 | Extension | Mechanism | Use Case |
 |-----------|-----------|----------|
+| Custom `SamplingStrategy` | Implement `SamplingStrategy` interface, register as `@Bean` | Priority-based sampling (e.g., always sample payments, 5% of health checks) |
 | Custom `LogSink` | Implement `LogSink` interface, register as `@Bean` | Send traces to Elasticsearch, Kafka, HTTP endpoint |
 | Custom `TraceIdGenerator` | Implement `TraceIdGenerator` interface, register as `@Bean` | Custom ID format (e.g., prefixed UUIDs) |
 | Custom `TraceHandlerInterceptor` | Extend or replace, register as `@Bean` | URL-path exclusions, custom header logic |
@@ -361,8 +382,7 @@ Each completed trace produces one JSON document:
 | 1 | Async workers that outlive the request lose events after `endTrace()` snapshot | Events emitted after trace completion are silently dropped | Ensure async work completes before request returns, or use manual traces for long-running async flows |
 | 2 | Single flush thread | Slow sinks cause queue growth until drops | Tune `maxPendingTraces` and `orphanScanIntervalSeconds`; use fast sinks in production |
 | 3 | Not a replacement for distributed tracing UIs | No flame graphs, service maps, or span-level visualization | Use alongside OTEL + Jaeger/Tempo for visual tracing; trace-log provides the structured log layer |
-| 4 | No sampling | Every request produces a trace document | Implement sampling in a custom `LogSink` if needed |
-| 5 | 5-second flush window on SIGKILL | In-flight and queued traces lost on hard kill | SIGTERM triggers graceful drain; for SIGKILL, reduce `orphanScanIntervalSeconds` |
+| 4 | 5-second flush window on SIGKILL | In-flight and queued traces lost on hard kill | SIGTERM triggers graceful drain; for SIGKILL, reduce `orphanScanIntervalSeconds` |
 
 ---
 
@@ -392,6 +412,11 @@ docker compose down              # Stop
 # Health check
 curl http://localhost:8085/health
 
+# With sampling (50% rate, errors always captured)
+docker compose -f docker-compose.e2e.yml up -d --build
+# Default app (100% sampling): http://localhost:8085
+# Sampled app (50% sampling):  http://localhost:8086
+
 # Basic order (generates ULID trace ID)
 curl -X POST http://localhost:8085/api/orders \
   -H "Content-Type: application/json" \
@@ -414,10 +439,21 @@ curl -X POST http://localhost:8085/api/orders \
 
 ## 13. Future Roadmap
 
+### Completed (v1.0.0)
+
+| Item | Description |
+|------|-------------|
+| ~~Sampling support~~ | Pluggable `SamplingStrategy` with rate-based sampling. Error traces always captured (100%). Configurable via `tracelog.sampling.rate`. |
+| ~~`AtomicInteger` queue counter~~ | Replaced `CLQ.size()` O(n) with O(1) `AtomicInteger` counter. |
+| ~~W3C traceparent mixed-case~~ | Parser now accepts uppercase hex and normalizes to lowercase. |
+| ~~Spring starter integration tests~~ | 40 tests covering auto-configuration, all interceptors, and task decorator. |
+| ~~E2E tests~~ | 14 Docker-based tests validating full request flows, sampling, concurrency. |
+| ~~Performance benchmarks~~ | 586k TPS throughput, 2 us p99 latency (29x headroom over 20k target). |
+
+### Future
+
 | Item | Description | Priority |
 |------|-------------|----------|
-| Sampling support | Configurable sampling rate (e.g., 10% of traces) to reduce volume in high-throughput services | P1 |
-| `AtomicInteger` queue counter | Replace `CLQ.size()` O(n) backpressure check with O(1) counter | P1 |
 | Multi-thread flush pool | Configurable flush thread count for slow sinks | P2 |
 | Reactive support | `WebFlux` / `WebFilter` instrumentation for reactive Spring Boot apps | P1 |
 | gRPC interceptor | Auto-instrumentation for gRPC server calls | P2 |

@@ -11,6 +11,7 @@ public class TraceLogProperties {
     private Sink sink = new Sink();
     private TraceId traceId = new TraceId();
     private NoContext noContext = new NoContext();
+    private Sampling sampling = new Sampling();
 
     public boolean isEnabled() {
         return enabled;
@@ -58,6 +59,14 @@ public class TraceLogProperties {
 
     public void setNoContext(NoContext noContext) {
         this.noContext = noContext;
+    }
+
+    public Sampling getSampling() {
+        return sampling;
+    }
+
+    public void setSampling(Sampling sampling) {
+        this.sampling = sampling;
     }
 
     public static class Buffer {
@@ -143,6 +152,18 @@ public class TraceLogProperties {
         public enum Format {
             ULID,
             UUID
+        }
+    }
+
+    public static class Sampling {
+        private double rate = 1.0;
+
+        public double getRate() {
+            return rate;
+        }
+
+        public void setRate(double rate) {
+            this.rate = rate;
         }
     }
 

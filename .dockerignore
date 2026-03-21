@@ -12,3 +12,6 @@ README.md
 .claude/
 .dockerignore
 Dockerfile
+docker-compose.e2e.yml
+trace-log-e2e/src/
+traces-output.json

@@ -10,6 +10,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.web.servlet.HandlerInterceptor;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
@@ -21,7 +22,7 @@ public class TraceLogWebMvcAutoConfiguration implements WebMvcConfigurer {
 
     private final TraceHandlerInterceptor traceHandlerInterceptor;
 
-    public TraceLogWebMvcAutoConfiguration(TraceHandlerInterceptor traceHandlerInterceptor) {
+    public TraceLogWebMvcAutoConfiguration(@Lazy TraceHandlerInterceptor traceHandlerInterceptor) {
         this.traceHandlerInterceptor = traceHandlerInterceptor;
     }
 

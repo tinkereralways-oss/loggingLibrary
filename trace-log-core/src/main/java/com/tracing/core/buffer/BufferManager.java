@@ -1,6 +1,8 @@
 package com.tracing.core.buffer;
 
 import com.tracing.core.CompletedTrace;
+import com.tracing.core.sampling.AlwaysSampleStrategy;
+import com.tracing.core.sampling.SamplingStrategy;
 import com.tracing.core.sink.LogSink;
 
 import java.util.ArrayList;
@@ -28,11 +30,18 @@ public final class BufferManager {
     private final AtomicLong writtenCount = new AtomicLong(0);
     private final AtomicLong failedCount = new AtomicLong(0);
     private final AtomicLong droppedCount = new AtomicLong(0);
+    private final AtomicLong sampledOutCount = new AtomicLong(0);
     private final int maxPendingTraces;
+    private final SamplingStrategy samplingStrategy;
 
     public BufferManager(LogSink sink, BufferConfig config) {
+        this(sink, config, new AlwaysSampleStrategy());
+    }
+
+    public BufferManager(LogSink sink, BufferConfig config, SamplingStrategy samplingStrategy) {
         this.sink = sink;
         this.maxPendingTraces = config.getMaxPendingTraces();
+        this.samplingStrategy = samplingStrategy;
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "trace-log-flush");
             t.setDaemon(true);
@@ -55,6 +64,10 @@ public final class BufferManager {
             return;
         }
         if (IS_FLUSHING.get()) {
+            return;
+        }
+        if (!samplingStrategy.shouldSample(trace)) {
+            sampledOutCount.incrementAndGet();
             return;
         }
         if (pendingCount.get() >= maxPendingTraces) {
@@ -127,6 +140,10 @@ public final class BufferManager {
 
     public long getDroppedCount() {
         return droppedCount.get();
+    }
+
+    public long getSampledOutCount() {
+        return sampledOutCount.get();
     }
 
     public int getPendingCount() {

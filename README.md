@@ -138,13 +138,15 @@ Every completed request produces one JSON document on stdout:
 - **ThreadLocal propagation** — `TraceLog.event()` works from any class on the call stack without passing objects
 - **Business metrics** — first-class `.metric("revenue", 1500.00)` on any event
 - **ULID trace IDs** — time-sortable, 26 characters, no external dependency
-- **OpenTelemetry compatibility** — auto-detects W3C `traceparent` header and reuses the OTEL trace ID; falls back to ULID/UUID when no parent trace exists
+- **OpenTelemetry compatibility** — auto-detects W3C `traceparent` header (including mixed-case hex) and reuses the OTEL trace ID; falls back to ULID/UUID when no parent trace exists
+- **Sampling** — pluggable `SamplingStrategy` with built-in rate-based sampling; error traces are always captured regardless of rate
 - **Immediate flush on trace completion** — minimizes log loss on pod crash
 - **Backpressure** — configurable queue limit with drop-and-warn
 - **Write retry** — failed sink writes retry before dropping
 - **Cross-service correlation** — `X-Trace-Id` and W3C `traceparent` headers supported in/out
 - **SLF4J MDC bridge** — trace ID available in all standard log statements
 - **Async propagation** — `@Async` methods and custom thread pools carry trace context
+- **Production validated** — 586k TPS throughput, 2 us p99 latency ([benchmarks](docs/PERFORMANCE.md))
 
 ## API Reference
 
@@ -311,6 +313,10 @@ tracelog.buffer.orphan-scan-interval-seconds=5
 # Max traces in the flush queue before dropping (default: 10000)
 tracelog.buffer.max-pending-traces=10000
 
+# Sampling rate: 0.0 to 1.0 (default: 1.0 = sample everything)
+# Error traces are always sampled regardless of rate
+tracelog.sampling.rate=1.0
+
 # Pretty-print JSON output (default: false)
 tracelog.sink.pretty-print=false
 ```
@@ -329,20 +335,23 @@ trace-log/
 │   ├── TimedEvent                   AutoCloseable timed operations
 │   ├── CompletedTrace               Immutable snapshot for serialization
 │   ├── BufferManager                Async queue + scheduled drain
+│   ├── SamplingStrategy             Pluggable trace sampling
 │   ├── LogSink / JsonStdoutSink     Pluggable output
 │   ├── UlidGenerator                Time-sortable ID generation
 │   ├── W3CTraceparentParser         OTEL traceparent header parsing
 │   └── TraceTaskDecorator           Async context propagation
 │
 ├── trace-log-spring-boot-starter/   Auto-configuration
-│   ├── TraceLogAutoConfiguration    Bean wiring
+│   ├── TraceLogAutoConfiguration    Bean wiring + sampling
 │   ├── TraceHandlerInterceptor      REST interception
 │   ├── TraceScheduledAspect         @Scheduled interception
 │   ├── TraceKafkaInterceptor        Kafka interception
 │   ├── TraceJmsListenerAspect       JMS/IBM MQ interception
 │   └── TraceMdcFilter               SLF4J MDC bridge
 │
-└── trace-log-example/               Demo Spring Boot app
+├── trace-log-example/               Demo Spring Boot app
+├── trace-log-e2e/                   Docker-based E2E tests
+└── trace-log-bom/                   Bill of Materials
 ```
 
 ### Trace Lifecycle
@@ -457,11 +466,30 @@ ExecutorService tracedPool = new TraceableExecutorService(
 | `@Scheduled` tracing | `spring-boot-starter-aop` |
 | `@Async` propagation | (always available) |
 
-## Building
+## Building and Testing
 
 ```bash
-mvn clean install
+# Build and run unit + integration tests (no Docker required)
+mvn clean verify -DskipE2E=true
+
+# Run E2E tests (requires Docker)
+mvn test -pl trace-log-e2e
+
+# Run performance benchmarks
+mvn test -pl trace-log-core -Dtest="TraceLogPerformanceTest"
+
+# Full build — all 97 tests including E2E
+mvn clean verify
 ```
+
+### Test Coverage
+
+| Module | Tests | What's Covered |
+|--------|-------|----------------|
+| trace-log-core | 43 | Trace lifecycle, events, buffering, sampling, W3C parsing, latency benchmarks |
+| trace-log-spring-boot-starter | 40 | Auto-configuration, REST/Kafka/JMS/Scheduled interceptors, task decorator |
+| trace-log-e2e | 14 | Full Docker-based request flows, trace propagation, sampling, concurrent load |
+| **Total** | **97** | |
 
 ## Running the Example
 
@@ -479,11 +507,27 @@ No Java or Maven installation required:
 # Build and start
 docker compose up --build
 
-# View logs
+# View logs (trace JSON output)
 docker compose logs -f
 
 # Stop
 docker compose down
+```
+
+### E2E test environment
+
+```bash
+# Start both default and sampled instances
+docker compose -f docker-compose.e2e.yml up -d --build
+
+# Default app: http://localhost:8085
+# Sampled app (50% rate): http://localhost:8086
+
+# View trace output
+docker compose -f docker-compose.e2e.yml logs --no-log-prefix trace-log-app | grep '"traceId"'
+
+# Stop
+docker compose -f docker-compose.e2e.yml down
 ```
 
 ### Test endpoints
@@ -506,3 +550,15 @@ curl http://localhost:8085/health
 ```
 
 Watch stdout for structured trace JSON output.
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Configuration Reference](docs/CONFIGURATION.md) | All properties with defaults, sampling config, bean overrides |
+| [Usage Guide](docs/USAGE.md) | Detailed examples across a payment microservices ecosystem |
+| [Integration Guide](docs/INTEGRATION.md) | Setup for REST, Kafka, JMS, Scheduled, Async |
+| [API Reference](docs/API.md) | Complete API documentation for TraceLog, LogEventBuilder, TimedEvent |
+| [Architecture](docs/ARCHITECTURE.md) | Module structure, trace lifecycle, thread safety model |
+| [Performance Benchmarks](docs/PERFORMANCE.md) | 586k TPS throughput, 2 us p99 latency, methodology |
+| [Product Requirements](docs/PRD.md) | Problem statement, design principles, target users |

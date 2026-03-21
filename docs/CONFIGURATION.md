@@ -33,6 +33,33 @@ All properties are optional. The library works with zero configuration.
 | `tracelog.buffer.max-trace-duration-seconds` | int | `300` | Unused (reserved for future orphan detection) |
 | `tracelog.buffer.max-pending-traces` | int | `10000` | Queue size before backpressure drops traces |
 
+### Sampling
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `tracelog.sampling.rate` | double | `1.0` | Fraction of traces to keep (0.0 - 1.0). Error traces are always sampled regardless of rate. |
+
+**How it works:**
+- `1.0` — sample everything (default, backward compatible)
+- `0.0` — only sample traces with `TraceStatus.ERROR`
+- `0.1` — sample ~10% of traces + all errors
+- Uses deterministic hash of trace ID, so the same trace ID always produces the same sampling decision
+
+**Custom strategy:** Provide a `SamplingStrategy` bean to override the default rate-based strategy:
+
+```java
+@Bean
+public SamplingStrategy samplingStrategy() {
+    return trace -> {
+        // Always sample errors
+        if (trace.getStatus() == TraceStatus.ERROR) return true;
+        // Custom logic: sample all payment traces, 10% of health checks
+        if (trace.getEntryPoint().contains("/api/payments")) return true;
+        return Math.random() < 0.1;
+    };
+}
+```
+
 ### Sink
 
 | Property | Type | Default | Description |
@@ -65,6 +92,17 @@ tracelog.trace-id.format=ULID
 tracelog.sink.pretty-print=false
 tracelog.buffer.max-events-per-trace=500
 tracelog.buffer.max-pending-traces=50000
+tracelog.sampling.rate=0.1
+```
+
+### High-throughput production (>5k req/s)
+
+```properties
+tracelog.sink.pretty-print=false
+tracelog.buffer.max-events-per-trace=200
+tracelog.buffer.max-pending-traces=100000
+tracelog.buffer.orphan-scan-interval-seconds=2
+tracelog.sampling.rate=0.05
 ```
 
 ### Disabled (e.g., in test profiles)

@@ -1,0 +1,35 @@
+services:
+  trace-log-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    environment:
+      - TRACELOG_BUFFER_ORPHAN_SCAN_INTERVAL_SECONDS=1
+      - TRACELOG_SINK_PRETTY_PRINT=false
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: "no"
+
+  trace-log-app-sampled:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8086:8085"
+    environment:
+      - TRACELOG_BUFFER_ORPHAN_SCAN_INTERVAL_SECONDS=1
+      - TRACELOG_SAMPLING_RATE=0.5
+      - TRACELOG_SINK_PRETTY_PRINT=false
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8085/health || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: "no"

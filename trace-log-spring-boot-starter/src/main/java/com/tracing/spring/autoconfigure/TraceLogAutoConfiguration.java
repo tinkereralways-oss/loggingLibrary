@@ -8,6 +8,9 @@ import com.tracing.core.buffer.BufferManager;
 import com.tracing.core.id.TraceIdGenerator;
 import com.tracing.core.id.UlidGenerator;
 import com.tracing.core.id.UuidGenerator;
+import com.tracing.core.sampling.AlwaysSampleStrategy;
+import com.tracing.core.sampling.RateSamplingStrategy;
+import com.tracing.core.sampling.SamplingStrategy;
 import com.tracing.core.sink.JsonStdoutSink;
 import com.tracing.core.sink.LogSink;
 import org.springframework.beans.factory.annotation.Value;
@@ -57,15 +60,26 @@ public class TraceLogAutoConfiguration {
                 properties.getBuffer().getMaxEventsPerTrace());
     }
 
+    @Bean
+    @ConditionalOnMissingBean
+    public SamplingStrategy samplingStrategy(TraceLogProperties properties) {
+        double rate = properties.getSampling().getRate();
+        if (rate >= 1.0) {
+            return new AlwaysSampleStrategy();
+        }
+        return new RateSamplingStrategy(rate);
+    }
+
     @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean
-    public BufferManager bufferManager(LogSink logSink, TraceLogProperties properties) {
+    public BufferManager bufferManager(LogSink logSink, TraceLogProperties properties,
+                                       SamplingStrategy samplingStrategy) {
         BufferConfig config = new BufferConfig(
                 properties.getBuffer().getOrphanScanIntervalSeconds(),
                 properties.getBuffer().getMaxTraceDurationSeconds(),
                 properties.getBuffer().getMaxPendingTraces()
         );
-        return new BufferManager(logSink, config);
+        return new BufferManager(logSink, config, samplingStrategy);
     }
 
     @Bean

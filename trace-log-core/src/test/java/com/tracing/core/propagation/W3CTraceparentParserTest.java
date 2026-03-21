@@ -44,9 +44,17 @@ class W3CTraceparentParserTest {
     }
 
     @Test
-    void returnsNullForUppercaseHexTraceId() {
-        assertNull(W3CTraceparentParser.extractTraceId(
-                "00-0AF7651916CD43DD8448EB211C80319C-b7ad6b7169203331-01"));
+    void acceptsUppercaseHexTraceIdAndNormalizesToLowercase() {
+        assertEquals("0af7651916cd43dd8448eb211c80319c",
+                W3CTraceparentParser.extractTraceId(
+                        "00-0AF7651916CD43DD8448EB211C80319C-b7ad6b7169203331-01"));
+    }
+
+    @Test
+    void acceptsMixedCaseHexTraceIdAndNormalizesToLowercase() {
+        assertEquals("0af7651916cd43dd8448eb211c80319c",
+                W3CTraceparentParser.extractTraceId(
+                        "00-0aF7651916Cd43dD8448eB211C80319c-b7ad6b7169203331-01"));
     }
 
     @Test

@@ -26,6 +26,7 @@ Contains all core abstractions with no Spring dependency. Can be used standalone
 | `TimedEvent` | AutoCloseable timed operations |
 | `ManualTrace` | AutoCloseable manual trace lifecycle |
 | `BufferManager` | Async queue with scheduled drain |
+| `SamplingStrategy` | Pluggable trace sampling (rate-based, always-sample) |
 | `LogSink` / `JsonStdoutSink` | Pluggable output abstraction |
 | `UlidGenerator` | Time-sortable ULID generation |
 | `W3CTraceparentParser` | Extracts trace ID from W3C `traceparent` headers |

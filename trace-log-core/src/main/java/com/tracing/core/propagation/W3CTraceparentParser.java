@@ -45,17 +45,17 @@ public final class W3CTraceparentParser {
             return null;
         }
 
-        if (!isLowercaseHex(traceId)) {
+        if (!isHex(traceId)) {
             return null;
         }
 
-        return traceId;
+        return traceId.toLowerCase();
     }
 
-    private static boolean isLowercaseHex(String value) {
+    private static boolean isHex(String value) {
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'))) {
                 return false;
             }
         }
