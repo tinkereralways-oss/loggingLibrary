@@ -10,6 +10,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public final class BufferManager {
@@ -20,6 +21,7 @@ public final class BufferManager {
 
     private final LogSink sink;
     private final ConcurrentLinkedQueue<CompletedTrace> pendingTraces = new ConcurrentLinkedQueue<>();
+    private final AtomicInteger pendingCount = new AtomicInteger(0);
     private final ScheduledExecutorService scheduler;
     private final AtomicBoolean running = new AtomicBoolean(true);
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
@@ -55,13 +57,14 @@ public final class BufferManager {
         if (IS_FLUSHING.get()) {
             return;
         }
-        if (pendingTraces.size() >= maxPendingTraces) {
+        if (pendingCount.get() >= maxPendingTraces) {
             droppedCount.incrementAndGet();
             System.err.println("[trace-log] Backpressure: dropping trace " + trace.getTraceId()
                     + " (queue full at " + maxPendingTraces + ")");
             return;
         }
         pendingTraces.offer(trace);
+        pendingCount.incrementAndGet();
     }
 
     public boolean isFlushing() {
@@ -74,6 +77,7 @@ public final class BufferManager {
             List<CompletedTrace> batch = new ArrayList<>(DRAIN_BATCH_SIZE);
             CompletedTrace trace;
             while (batch.size() < DRAIN_BATCH_SIZE && (trace = pendingTraces.poll()) != null) {
+                pendingCount.decrementAndGet();
                 batch.add(trace);
             }
             for (CompletedTrace t : batch) {
@@ -126,7 +130,7 @@ public final class BufferManager {
     }
 
     public int getPendingCount() {
-        return pendingTraces.size();
+        return pendingCount.get();
     }
 
     public void shutdown() {
