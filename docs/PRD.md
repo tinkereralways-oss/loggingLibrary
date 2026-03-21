@@ -36,12 +36,27 @@ Engineering teams resort to grep-by-timestamp, manual MDC management, and passin
 
 ## 3. Target Users
 
-| Persona | Need | How trace-log helps |
-|---------|------|---------------------|
-| **Backend engineers** | Log business events with structured data without passing context objects | Static `TraceLog.event()` API with ThreadLocal propagation |
-| **SREs / On-call engineers** | Quickly find all logs for a failed request | Single JSON document per request with trace ID correlation |
-| **Platform / Observability teams** | Standardize logging across services without mandating a tracing backend | Drop-in starter with auto-instrumentation; JSON output pipes to any aggregator |
-| **Teams migrating to OTEL** | Gradually adopt OpenTelemetry without a flag day | Auto-detects W3C `traceparent` header and reuses OTEL trace ID |
+trace-log is built for teams running **business-critical microservices** — payments, order management, fulfillment, onboarding, lending — where every minute of downtime or misdiagnosis costs revenue and customer trust. In these domains, MTTR (Mean Time to Resolution) is the metric that matters most, and it is almost entirely determined by how fast an engineer can go from "alert fired" to "I see the exact request that failed, what it was doing, and why."
+
+### Primary Personas
+
+| Persona | Pain Point | How trace-log reduces MTTR |
+|---------|------------|---------------------------|
+| **Backend engineers on business-critical services** | Debugging a failed payment or order requires correlating dozens of log lines across controller, service, repository, and async layers — often under incident pressure | One JSON document per request with every event, metric, and timing in sequence. Search by trace ID → see the full story in one place. No grep chains, no timestamp guessing. |
+| **SREs / On-call engineers** | Incident triage means answering "which request failed, what did it touch, and how long did each step take?" — currently requires hopping between log streams and dashboards | Structured events with `durationMs`, business metrics, and exception details enable root-cause identification from a single trace document. Filter by `status: ERROR` to find failing traces instantly. |
+| **Platform / Observability teams** | Standardizing logging across 10+ services without mandating a full tracing backend (Jaeger, Tempo) or rewriting existing code | Drop-in starter with auto-instrumentation. No code changes required for basic tracing. JSON output pipes directly to Splunk, DataDog, ELK, or any log aggregator the team already uses. |
+| **Teams migrating to OpenTelemetry** | OTEL rollout is incremental — some services have it, some don't. Trace correlation breaks at service boundaries during the migration | Auto-detects W3C `traceparent` header and reuses the OTEL trace ID. Services with OTEL and services with trace-log share the same trace ID. No flag day required. |
+
+### Why MTTR Matters Here
+
+In business microservices, the cost of slow diagnosis is concrete:
+
+- **Payments:** A failed charge that takes 30 minutes to diagnose means 30 minutes of blocked revenue and potential SLA breach
+- **Order management:** An intermittent fulfillment bug that only reproduces under specific item/warehouse combinations is invisible without structured business context in logs
+- **Onboarding/KYC:** A compliance-critical flow failing silently (no structured error, just a 500) can block customer acquisition for hours
+- **Event-driven architectures:** A Kafka consumer processing a poisoned message is nearly impossible to debug without correlating the inbound message metadata to the downstream processing steps
+
+trace-log directly attacks the diagnosis phase of MTTR by ensuring that when an engineer opens a trace, they see **the complete request lifecycle with business context** — not a wall of unstructured text.
 
 ---
 
@@ -344,11 +359,10 @@ Each completed trace produces one JSON document:
 | # | Limitation | Impact | Mitigation |
 |---|-----------|--------|------------|
 | 1 | Async workers that outlive the request lose events after `endTrace()` snapshot | Events emitted after trace completion are silently dropped | Ensure async work completes before request returns, or use manual traces for long-running async flows |
-| 2 | `ConcurrentLinkedQueue.size()` is O(n) on backpressure check | Minor latency under queue pressure at ~10K pending traces | Replace with `AtomicInteger` counter in a future release |
-| 3 | Single flush thread | Slow sinks cause queue growth until drops | Tune `maxPendingTraces` and `orphanScanIntervalSeconds`; use fast sinks in production |
-| 4 | Not a replacement for distributed tracing UIs | No flame graphs, service maps, or span-level visualization | Use alongside OTEL + Jaeger/Tempo for visual tracing; trace-log provides the structured log layer |
-| 5 | No sampling | Every request produces a trace document | Implement sampling in a custom `LogSink` if needed |
-| 6 | 5-second flush window on SIGKILL | In-flight and queued traces lost on hard kill | SIGTERM triggers graceful drain; for SIGKILL, reduce `orphanScanIntervalSeconds` |
+| 2 | Single flush thread | Slow sinks cause queue growth until drops | Tune `maxPendingTraces` and `orphanScanIntervalSeconds`; use fast sinks in production |
+| 3 | Not a replacement for distributed tracing UIs | No flame graphs, service maps, or span-level visualization | Use alongside OTEL + Jaeger/Tempo for visual tracing; trace-log provides the structured log layer |
+| 4 | No sampling | Every request produces a trace document | Implement sampling in a custom `LogSink` if needed |
+| 5 | 5-second flush window on SIGKILL | In-flight and queued traces lost on hard kill | SIGTERM triggers graceful drain; for SIGKILL, reduce `orphanScanIntervalSeconds` |
 
 ---
 
@@ -417,10 +431,12 @@ curl -X POST http://localhost:8085/api/orders \
 
 ## 14. Success Metrics
 
-| Metric | Target |
-|--------|--------|
-| Adoption | Library integrated into 3+ production services within 3 months |
-| Mean time to correlate (MTTC) | Reduce from ~15 min (grep-based) to < 1 min (single trace ID search) |
-| Instrumentation overhead | < 1ms added latency per request (p99) |
-| Event loss rate | < 0.01% under normal load (non-backpressure conditions) |
-| Zero-config adoption | > 80% of adopting teams use default configuration only |
+| Metric | Target | Why it matters |
+|--------|--------|----------------|
+| **MTTR reduction** | Reduce incident diagnosis time by 50%+ (from ~30 min to < 15 min) | The primary value prop — faster diagnosis means less revenue loss and fewer SLA breaches on business-critical services |
+| **Mean time to correlate (MTTC)** | From ~15 min (grep-based) to < 1 min (single trace ID search) | The biggest MTTR bottleneck is finding which logs belong to the failed request |
+| **Adoption** | Integrated into 3+ production business services within 3 months | Validates that the library solves real problems without excessive onboarding cost |
+| **Instrumentation overhead** | < 1ms added latency per request (p99) | Business services cannot tolerate tracing that degrades transaction performance |
+| **Event loss rate** | < 0.01% under normal load (non-backpressure conditions) | Missing events during an incident defeats the purpose |
+| **Zero-config adoption** | > 80% of adopting teams use default configuration only | Validates the "zero config" design principle — complexity kills adoption |
+| **Incident resolution confidence** | Engineers can identify root cause from trace-log output alone in > 70% of incidents | Measures whether the structured output contains enough business context to be actionable |
