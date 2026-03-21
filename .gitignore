@@ -10,5 +10,4 @@
 .settings/
 .project
 .classpath
-.claude/
 traces-output.json
