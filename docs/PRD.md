@@ -8,7 +8,7 @@
 
 ## 1. Problem Statement
 
-In microservice architectures, a single user interaction (e.g., placing an order) fans out across multiple services, threads, and messaging systems. Traditional logging produces hundreds of disconnected log lines scattered across stdout, making it extremely difficult to:
+In microservice architectures, a single interaction (e.g., placing an order) fans out across multiple services, threads, and messaging systems. Traditional logging produces hundreds of disconnected log lines scattered across stdout, making it extremely difficult to:
 
 - **Correlate logs** belonging to the same request across controller → service → repository layers
 - **Measure operation latency** without manual stopwatch code
