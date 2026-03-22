@@ -243,6 +243,45 @@ The trace ID is also placed into the **SLF4J MDC** as `traceId`, so your existin
 <pattern>%d [%X{traceId}] %-5level %logger - %msg%n</pattern>
 ```
 
+### Important: trace JSON goes to stdout, not your log files
+
+By default, the structured JSON trace documents are written to **`System.out` (stdout)**, not to your SLF4J/Logback/Log4j2 log files. These are two separate output channels:
+
+| Output | Destination | What it contains |
+|---|---|---|
+| **trace-log JSON** | `System.out` (stdout) | One complete JSON document per trace with all events, metrics, metadata |
+| **Your existing logs** | Log files (via Logback/Log4j2) | Your normal `log.info(...)` / `log.error(...)` lines |
+
+If your infrastructure already captures stdout (e.g., Docker/Kubernetes), you may not need to do anything extra. But **if you need traces written to your application log files**, register a custom `LogSink` that routes through SLF4J:
+
+```java
+@Bean
+public LogSink slf4jSink(ObjectMapper mapper) {
+    return new LogSink() {
+        private static final Logger log = LoggerFactory.getLogger("trace-log");
+
+        public void write(CompletedTrace trace) {
+            try {
+                log.info(mapper.writeValueAsString(trace));
+            } catch (JsonProcessingException e) {
+                log.error("Failed to serialize trace", e);
+            }
+        }
+        public void flush() {}
+        public void close() {}
+    };
+}
+```
+
+This sends the JSON through Logback/Log4j2 and into whatever appenders (files, rolling files, etc.) you have configured. If you want both stdout and log files, use `CompositeSink`:
+
+```java
+@Bean
+public LogSink compositeSink(ObjectMapper mapper) {
+    return new CompositeSink(List.of(new JsonStdoutSink(), slf4jSink(mapper)));
+}
+```
+
 ## Step 10 — Verify it works
 
 1. Start your app
